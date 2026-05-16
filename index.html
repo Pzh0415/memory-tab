@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover">
+  <title>记忆层积 · 稳定版 | 障雾叙事</title>
+  <!-- Leaflet CSS 安全加载 -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@200;300;350;400;500&family=Noto+Serif+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-warm: #E8E0D9;
+      --text-primary: #3A3530;
+      --text-secondary: #8A7E72;
+      --rust-red: #C44B3C;
+      --dock-blue: #4A7A8C;
+      --moss-green: #6B8C5C;
+      --glass-bg: rgba(255,255,255,0.55);
+      --glass-border: rgba(220,210,200,0.4);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Noto Sans SC', sans-serif;
+      background: #2a2522;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+    .app-container {
+      width:100%; max-width:1400px; height:88vh; max-height:900px; min-height:620px;
+      background: var(--bg-warm); border-radius:18px;
+      display:flex; overflow:hidden;
+      box-shadow:0 24px 60px rgba(0,0,0,0.18);
+    }
+    .map-area { flex:1; position:relative; background:#d5cdc4; }
+    #map { width:100%; height:100%; background:#d5cdc4; }
+    .leaflet-container { background:#d5cdc4; }
+    .leaflet-tile { filter: saturate(0.35) sepia(0.2) brightness(0.92) contrast(0.88); }
+    .map-float-btn {
+      position:absolute; bottom:24px; right:24px; z-index:1002; width:48px; height:48px; border-radius:50%;
+      background: var(--glass-bg); backdrop-filter: blur(14px);
+      border:1px solid var(--glass-border); cursor:pointer; font-size:26px; color:var(--text-primary);
+      display:flex; align-items:center; justify-content:center; transition:0.3s;
+      box-shadow:0 4px 12px rgba(0,0,0,0.06); font-weight:300;
+    }
+    .map-float-btn.active-mode { background:rgba(196,75,60,0.18); border-color:var(--rust-red); color:var(--rust-red); }
+    .map-hint {
+      position:absolute; top:16px; left:50%; transform:translateX(-50%); z-index:1001;
+      background: var(--glass-bg); backdrop-filter: blur(10px); border:1px solid var(--glass-border);
+      border-radius:20px; padding:8px 18px; font-size:13px; color:var(--text-secondary);
+      pointer-events:none; opacity:0; transition:0.3s; font-weight:300;
+    }
+    .sidebar {
+      width:370px; flex-shrink:0; background: rgba(240,235,228,0.75); backdrop-filter: blur(20px);
+      border-left:1px solid rgba(210,200,188,0.5); display:flex; flex-direction:column; z-index:10;
+    }
+    .sidebar-header { padding:24px 24px 16px; border-bottom:1px solid rgba(180,170,155,0.25); }
+    .sidebar-header h2 { font-family:'Noto Serif SC',serif; font-weight:400; font-size:22px; color:var(--text-primary); display:flex; align-items:center; gap:10px; }
+    .dot-accent { width:7px; height:7px; border-radius:50%; background:var(--rust-red); }
+    .sidebar-subtitle { font-size:12px; color:var(--text-secondary); margin-top:4px; font-weight:300; }
+    .editable-title {
+      background:transparent; border:none; border-bottom:1px dashed rgba(138,126,114,0.4);
+      font-family:inherit; font-size:inherit; font-weight:inherit; color:inherit;
+      letter-spacing:inherit; outline:none; min-width:40px; display:inline-block; padding:0 2px;
+    }
+    .editable-title:focus { border-bottom:1px solid var(--rust-red); }
+    .marker-list-wrap { flex:1; overflow-y:auto; padding:8px 16px 16px; display:flex; flex-direction:column; gap:8px; }
+    .empty-state { text-align:center; padding:40px 20px; color:var(--text-secondary); font-weight:300; font-size:14px; }
+    .marker-card {
+      background:var(--glass-bg); backdrop-filter:blur(10px); border:1px solid var(--glass-border);
+      border-radius:12px; padding:14px 16px; cursor:pointer; display:flex; gap:12px; position:relative;
+      transition:0.3s; box-shadow:0 2px 8px rgba(0,0,0,0.02);
+    }
+    .marker-card:hover { background:rgba(255,255,255,0.68); transform:translateX(2px); }
+    .dot-indicator { width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+    .card-title { font-size:15px; font-weight:400; color:var(--text-primary); }
+    .card-tags { font-size:11px; color:var(--text-secondary); display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+    .card-tags span { background:rgba(200,190,175,0.3); padding:2px 8px; border-radius:10px; }
+    .card-desc { font-size:12px; color:#6b635b; margin-top:4px; }
+    .card-thumb { width:60px; height:60px; border-radius:8px; object-fit:cover; margin-top:6px; cursor:pointer; }
+    .card-actions { position:absolute; bottom:8px; right:10px; display:flex; gap:4px; }
+    .card-action-btn {
+      background:rgba(200,180,165,0.2); border:none; border-radius:50%; width:28px; height:28px;
+      cursor:pointer; font-size:14px; color:var(--text-secondary); display:flex; align-items:center;
+      justify-content:center; opacity:0; transition:0.2s;
+    }
+    .marker-card:hover .card-action-btn { opacity:1; }
+    .card-action-btn:hover { background:rgba(196,75,60,0.15); color:var(--rust-red); }
+    .sidebar-footer { padding:10px 24px 16px; border-top:1px solid rgba(180,170,155,0.2); font-size:10px; color:var(--text-secondary); text-align:center; }
+    .tool-row { display:flex; gap:8px; justify-content:center; padding:8px 24px 4px; }
+    .tool-btn {
+      font-size:11px; padding:4px 12px; border-radius:20px; border:1px solid var(--glass-border);
+      background:var(--glass-bg); backdrop-filter:blur(10px); cursor:pointer; color:var(--text-secondary); transition:0.2s;
+    }
+    .tool-btn:hover { background:rgba(255,255,255,0.7); color:var(--text-primary); }
+    .save-indicator { font-size:10px; color:var(--moss-green); opacity:0; transition:opacity 0.5s; margin-left:8px; }
+
+    /* 弹窗轮播 4:3 */
+    .popup-carousel {
+      width:100%; position:relative; margin-top:6px; border-radius:8px;
+      overflow:hidden; background:#d5cdc4; aspect-ratio:4/3;
+    }
+    .popup-carousel img {
+      position:absolute; top:0; left:0; width:100%; height:100%;
+      object-fit:cover; opacity:0; transition:opacity 1s ease; cursor:pointer;
+    }
+    .popup-carousel img.active { opacity:1; pointer-events:auto; }
+    .popup-carousel img:not(.active) { pointer-events:none; }
+
+    /* 模态窗 */
+    .modal-overlay {
+      position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(30,25,20,0.55);
+      z-index:2000; display:flex; align-items:center; justify-content:center; animation:fadeIn 0.25s;
+    }
+    .modal-overlay.hidden { display:none; }
+    .modal-panel {
+      background:rgba(245,240,234,0.95); backdrop-filter:blur(24px); border:1px solid rgba(210,200,185,0.5);
+      border-radius:18px; padding:24px 28px; width:500px; max-width:94vw; max-height:80vh; overflow-y:auto;
+      box-shadow:0 20px 50px rgba(0,0,0,0.15);
+    }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+    .modal-panel h3 { font-family:'Noto Serif SC',serif; font-weight:400; font-size:20px; color:var(--text-primary); margin-bottom:18px; }
+    label { display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px; font-weight:350; }
+    input, select, textarea {
+      width:100%; padding:10px 14px; border:1px solid rgba(180,165,150,0.4); border-radius:8px;
+      background:rgba(255,255,255,0.5); font-family:'Noto Sans SC'; font-size:14px; color:var(--text-primary);
+      margin-bottom:14px; outline:none;
+    }
+    textarea { min-height:70px; resize:vertical; }
+    .img-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .img-item {
+      position:relative; width:70px; height:70px; border-radius:8px; overflow:hidden;
+      background:#e0d7cc; border:1px solid rgba(180,165,150,0.3);
+    }
+    .img-item img { width:100%; height:100%; object-fit:cover; }
+    .img-item .remove-img {
+      position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.4); color:#fff; border:none;
+      width:20px; height:20px; border-radius:50%; font-size:12px; cursor:pointer; display:flex;
+      align-items:center; justify-content:center;
+    }
+    .btn-row { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+    .btn {
+      padding:10px 20px; border-radius:20px; border:1px solid rgba(180,165,150,0.4);
+      background:rgba(255,255,255,0.5); cursor:pointer; font-size:14px; color:var(--text-primary); transition:0.2s;
+    }
+    .btn-primary { background:var(--rust-red); color:#f5efe8; border-color:var(--rust-red); }
+    .btn-primary:hover { background:#b34032; }
+
+    /* 灯箱 */
+    .lightbox {
+      position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(20,18,16,0.7);
+      backdrop-filter:blur(4px); z-index:3000; display:flex; align-items:center; justify-content:center;
+      opacity:0; pointer-events:none; transition:opacity 0.3s;
+    }
+    .lightbox.active { opacity:1; pointer-events:auto; }
+    .lightbox-image {
+      max-width:90vw; max-height:90vh; transform:scale(2); border-radius:4px;
+      box-shadow:0 0 30px rgba(0,0,0,0.5), 0 0 0 8px rgba(200,180,160,0.2);
+      filter:blur(2px); opacity:0.8; transition:transform 0.2s; cursor:pointer;
+    }
+    .lightbox-close { position:absolute; top:20px; right:30px; font-size:32px; color:#f0e9e0; cursor:pointer; z-index:3001; }
+
+    @media (max-width:820px) {
+      .app-container { flex-direction:column; height:95vh; }
+      .sidebar { width:100%; height:42%; min-height:260px; border-left:none; border-top:1px solid rgba(210,200,188,0.5); }
+      .map-area { height:58%; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <div class="map-area">
+    <div id="map"></div>
+    <button class="map-float-btn" id="mapFloatBtn" title="开始标记">+</button>
+    <div class="map-hint" id="mapHint">点击地图放置标记，再点击标记创建便签</div>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>
+        <span class="dot-accent"></span>
+        记忆便签 ·
+        <span contenteditable="true" id="regionName" class="editable-title" title="点击编辑地区名称">江阴</span>
+      </h2>
+      <p class="sidebar-subtitle">层积·透叠·显现 — 点击标记或列表查看</p>
+    </div>
+    <div class="marker-list-wrap" id="markerListWrap">
+      <div class="empty-state" id="emptyState">⌇<br>暂无记忆便签<br><small>点击右下角 + 开始标记</small></div>
+    </div>
+    <div class="tool-row">
+      <button class="tool-btn" id="exportBtn">导出 JSON</button>
+      <button class="tool-btn" id="importBtn">导入 JSON</button>
+      <span class="save-indicator" id="saveIndicator">✓ 已保存</span>
+    </div>
+    <div class="sidebar-footer">数据实时存于本地 · 障雾叙事</div>
+  </div>
+</div>
+
+<!-- 灯箱 -->
+<div class="lightbox" id="lightbox">
+  <span class="lightbox-close" id="lightboxClose">×</span>
+  <img id="lightboxImage" class="lightbox-image" src="" alt="放大预览">
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal-panel">
+    <h3 id="modalTitle">📌 新建记忆便签</h3>
+    <p class="coords-display" id="coordDisplay"></p>
+    <label>标题</label>
+    <input type="text" id="noteTitle" placeholder="给这段记忆一个名字…" maxlength="30">
+    <label>标签（逗号分隔）</label>
+    <input type="text" id="noteTags" placeholder="例如：童年,船厂,江边" maxlength="60">
+    <label>文字描述</label>
+    <textarea id="noteDesc" placeholder="描述当时的场景、感受…" maxlength="200"></textarea>
+    <label>类型颜色</label>
+    <select id="noteType">
+      <option value="personal">个人记忆 · 锈红</option>
+      <option value="historical">历史记忆 · 船厂蓝</option>
+      <option value="natural">自然记忆 · 青苔绿</option>
+      <option value="urban">城市变迁 · 暖褐</option>
+    </select>
+    <div class="img-upload-area">
+      <label>插图（最多5张，自动压缩）</label>
+      <input type="file" id="imageUpload" accept="image/*" multiple style="display:none;">
+      <button type="button" class="btn" id="uploadTrigger">选择图片</button>
+      <div class="img-list" id="imgList"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btnCancel">取消</button>
+      <button class="btn btn-primary" id="btnSave">保存便签</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="importFileInput" accept=".json" style="display:none;">
+
+<script>
+  (function() {
+    // 全局灯箱函数
+    window.openLightbox = function(src) {
+      document.getElementById('lightboxImage').src = src;
+      document.getElementById('lightbox').classList.add('active');
+    };
+
+    // Leaflet 加载器（多源回退）
+    function loadLeaflet(callback) {
+      if (typeof L !== 'undefined') { callback(); return; }
+      const tryLoad = (url, fallback) => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.onload = () => { if (typeof L !== 'undefined') callback(); else fallback(); };
+        script.onerror = fallback;
+        document.head.appendChild(script);
+      };
+      tryLoad('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', () => {
+        tryLoad('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js', () => {
+          document.getElementById('map').innerHTML = '<p style="text-align:center;padding-top:40px;">地图加载失败，请检查网络后刷新页面。</p>';
+        });
+      });
+    }
+
+    loadLeaflet(function() {
+      if (typeof L === 'undefined') return;
+
+      const DEFAULT_CENTER = [31.92, 120.27];
+      const DEFAULT_ZOOM = 13;
+      const STORAGE_KEY = 'memory-map-notes-stable';
+      const TITLE_KEY = 'memory-map-region-name';
+      const MAX_IMAGES = 5;
+      const IMAGE_MAX_WIDTH = 400;
+      const CAROUSEL_INTERVAL = 4000;
+
+      const TYPE_COLORS = {
+        personal: '#C44B3C', historical: '#4A7A8C',
+        natural: '#6B8C5C', urban: '#8A7E72'
+      };
+
+      let map, markersData = [];
+      let markerLayerGroup = L.layerGroup();
+      let draftMarker = null;
+      let isPlacingMode = false;
+      let pendingLatLng = null;
+      let editingId = null;
+      let currentImages = [];
+      const popupTimers = new Map();
+
+      // 基础 DOM 元素
+      const $ = (id) => document.getElementById(id);
+      const mapFloatBtn = $('mapFloatBtn');
+      const mapHint = $('mapHint');
+      const markerListWrap = $('markerListWrap');
+      const emptyState = $('emptyState');
+      const modalOverlay = $('modalOverlay');
+      const modalTitle = $('modalTitle');
+      const coordDisplay = $('coordDisplay');
+      const noteTitle = $('noteTitle');
+      const noteTags = $('noteTags');
+      const noteDesc = $('noteDesc');
+      const noteType = $('noteType');
+      const imageUpload = $('imageUpload');
+      const uploadTrigger = $('uploadTrigger');
+      const imgListDiv = $('imgList');
+      const btnCancel = $('btnCancel');
+      const btnSave = $('btnSave');
+      const exportBtn = $('exportBtn');
+      const importBtn = $('importBtn');
+      const importFileInput = $('importFileInput');
+      const saveIndicator = $('saveIndicator');
+      const regionNameSpan = $('regionName');
+      const lightbox = $('lightbox');
+      const lightboxImage = $('lightboxImage');
+      const lightboxClose = $('lightboxClose');
+
+      // 灯箱事件
+      lightboxClose.addEventListener('click', () => lightbox.classList.remove('active'));
+      lightbox.addEventListener('click', (e) => { if (e.target === lightbox) lightbox.classList.remove('active'); });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') lightbox.classList.remove('active'); });
+
+      // 地区名称
+      function loadRegionName() {
+        regionNameSpan.innerText = localStorage.getItem(TITLE_KEY) || '江阴';
+      }
+      function saveRegionName() {
+        const name = regionNameSpan.innerText.trim() || '江阴';
+        localStorage.setItem(TITLE_KEY, name);
+      }
+      regionNameSpan.addEventListener('blur', saveRegionName);
+      regionNameSpan.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); regionNameSpan.blur(); } });
+
+      // 数据管理
+      function loadData() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) { try { markersData = JSON.parse(raw); } catch(e){} }
+        markersData.forEach(m => {
+          if (!m.images && m.image) { m.images = [m.image]; delete m.image; }
+          if (!m.images) m.images = [];
+        });
+        if (!markersData.length) {
+          markersData = [
+            { id:'demo1', name:'长江大桥晨雾', tags:['江阴','大桥','雾气'], desc:'清晨桥面隐没在雾中，船只汽笛低沉。', type:'personal', lat:31.945, lng:120.335, images:[], createdAt: new Date().toISOString() },
+            { id:'demo2', name:'鹅鼻嘴公园', tags:['自然','江边'], desc:'小时候常去的礁石滩，能听见江水拍岸。', type:'natural', lat:31.93, lng:120.28, images:[], createdAt: new Date().toISOString() },
+            { id:'demo3', name:'老船厂遗址', tags:['工业','历史'], desc:'锈迹斑斑的龙门吊，江风里夹杂铁锈味。', type:'historical', lat:31.915, lng:120.25, images:[], createdAt: new Date().toISOString() }
+          ];
+          saveData(true);
+        }
+      }
+      function saveData(silent = false) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(markersData));
+        if (!silent) {
+          saveIndicator.style.opacity = '1';
+          setTimeout(() => { saveIndicator.style.opacity = '0'; }, 1500);
+        }
+      }
+
+      exportBtn.addEventListener('click', () => {
+        const dataStr = JSON.stringify(markersData, null, 2);
+        const blob = new Blob([dataStr], {type:'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${regionNameSpan.innerText||'memory'}-${new Date().toISOString().slice(0,10)}.json`;
+        a.click(); URL.revokeObjectURL(url);
+      });
+      importBtn.addEventListener('click', () => importFileInput.click());
+      importFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const imported = JSON.parse(ev.target.result);
+            if (!Array.isArray(imported)) throw new Error('格式错误');
+            if (!confirm(`导入 ${imported.length} 条记录？将合并到现有数据中。`)) return;
+            const existingIds = new Set(markersData.map(m=>m.id));
+            const newItems = imported.filter(item => !existingIds.has(item.id));
+            markersData = [...markersData, ...newItems];
+            saveData(); renderMarkers();
+            alert(`成功导入 ${newItems.length} 条新记录。`);
+          } catch(err) { alert('文件格式不正确。'); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      // 地图初始化（优化尺寸刷新）
+      function initMap() {
+        map = L.map('map', {
+          center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: true,
+          fadeAnimation: true, markerZoomAnimation: true
+        });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: 'abcd', maxZoom: 19, minZoom: 3,
+          errorTileUrl: '' // 避免红叉
+        }).addTo(map);
+        markerLayerGroup.addTo(map);
+        map.on('click', handleMapClick);
+        window.addEventListener('resize', () => {
+          if (map) map.invalidateSize();
+        });
+        // 确保容器尺寸已定
+        setTimeout(() => {
+          if (map) map.invalidateSize();
+        }, 200);
+      }
+
+      // 渲染所有标记
+      function renderMarkers() {
+        // 清除旧定时器
+        popupTimers.forEach(t => clearInterval(t));
+        popupTimers.clear();
+        markerLayerGroup.clearLayers();
+
+        markersData.forEach(m => {
+          const color = TYPE_COLORS[m.type] || '#8A7E72';
+          const marker = L.circleMarker([m.lat, m.lng], {
+            radius: 9, fillColor: color, color: '#ffffff', weight: 2, fillOpacity: 0.85
+          });
+          marker._memoryData = m;
+
+          const tagsHtml = (m.tags||[]).map(t=>`<span style="background:rgba(0,0,0,0.05);padding:2px 6px;border-radius:10px;font-size:11px;">${t}</span>`).join(' ');
+          const imagesHtml = popupCarouselHTML(m.images, m.id);
+          const popupContent = `<strong>${escapeHtml(m.name)}</strong><br>${tagsHtml}<br><small>${escapeHtml(m.desc||'')}</small><br>${imagesHtml}`;
+          marker.bindPopup(popupContent, { maxWidth: 300 });
+
+          marker.on('popupopen', (e) => {
+            const popupEl = e.popup.getElement();
+            const carousel = popupEl.querySelector('.popup-carousel');
+            if (carousel && m.images.length > 1) {
+              initPopupCarousel(carousel, m.images);
+            }
+          });
+          marker.on('popupclose', () => stopPopupCarousel(m.id));
+          marker.on('click', () => highlightCard(m.id));
+          markerLayerGroup.addLayer(marker);
+        });
+
+        updateSidebar();
+      }
+
+      // 弹窗轮播逻辑
+      function initPopupCarousel(container, images) {
+        if (!images || images.length <= 1) return;
+        const imgs = container.querySelectorAll('img');
+        if (imgs.length === 0) return;
+        imgs.forEach((img, i) => { img.classList.toggle('active', i === 0); });
+        let currentIdx = 0;
+        const interval = setInterval(() => {
+          imgs[currentIdx].classList.remove('active');
+          currentIdx = (currentIdx + 1) % images.length;
+          imgs[currentIdx].classList.add('active');
+        }, CAROUSEL_INTERVAL);
+        const markerId = container.dataset.markerId;
+        if (markerId) {
+          if (popupTimers.has(markerId)) clearInterval(popupTimers.get(markerId));
+          popupTimers.set(markerId, interval);
+        }
+      }
+
+      function stopPopupCarousel(markerId) {
+        const timer = popupTimers.get(markerId);
+        if (timer) { clearInterval(timer); popupTimers.delete(markerId); }
+      }
+
+      function popupCarouselHTML(images, markerId) {
+        if (!images || images.length === 0) return '';
+        if (images.length === 1) {
+          return `<img src="${images[0]}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:6px; margin-top:6px; cursor:pointer;" onclick="event.stopPropagation(); openLightbox('${images[0]}')">`;
+        }
+        let html = `<div class="popup-carousel" data-marker-id="${markerId}">`;
+        images.forEach(src => {
+          html += `<img src="${src}" onclick="event.stopPropagation(); openLightbox('${src}')">`;
+        });
+        html += '</div>';
+        return html;
+      }
+
+      function cardThumbHTML(images) {
+        if (!images || images.length === 0) return '';
+        return `<img class="card-thumb" src="${images[0]}" onclick="event.stopPropagation(); openLightbox('${images[0]}')">`;
+      }
+
+      // 侧边栏
+      function updateSidebar() {
+        const existingCards = markerListWrap.querySelectorAll('.marker-card');
+        existingCards.forEach(c=>c.remove());
+        if (markersData.length === 0) {
+          emptyState.style.display = 'block'; return;
+        }
+        emptyState.style.display = 'none';
+        [...markersData].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).forEach(m => {
+          const card = document.createElement('div');
+          card.className = 'marker-card';
+          card.dataset.id = m.id;
+          card.innerHTML = `
+            <span class="dot-indicator" style="background:${TYPE_COLORS[m.type]}"></span>
+            <div style="flex:1; min-width:0;">
+              <div class="card-title">${escapeHtml(m.name)}</div>
+              <div class="card-tags">${(m.tags||[]).map(t=>`<span>${t}</span>`).join('')}</div>
+              <div class="card-desc">${escapeHtml(m.desc||'')}</div>
+              ${cardThumbHTML(m.images)}
+            </div>
+            <div class="card-actions">
+              <button class="card-action-btn edit-btn" title="编辑便签">⋯</button>
+              <button class="card-action-btn delete-btn" title="删除">×</button>
+            </div>
+          `;
+          card.querySelector('.edit-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            pendingLatLng = { lat: m.lat, lng: m.lng };
+            openModal(pendingLatLng, m);
+          });
+          card.querySelector('.delete-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteMarker(m.id);
+          });
+          card.addEventListener('click', (e) => {
+            if (e.target.closest('.card-actions') || e.target.closest('.card-thumb')) return;
+            flyToMarker(m);
+          });
+          markerListWrap.appendChild(card);
+        });
+      }
+
+      function flyToMarker(m) {
+        if (!map) return;
+        map.flyTo([m.lat, m.lng], 16, { duration: 1 });
+        setTimeout(() => {
+          markerLayerGroup.eachLayer(layer => {
+            if (layer._memoryData?.id === m.id) layer.openPopup();
+          });
+          highlightCard(m.id);
+        }, 1100);
+      }
+
+      function highlightCard(id) {
+        const cards = document.querySelectorAll('.marker-card');
+        cards.forEach(c => c.style.background = '');
+        const target = Array.from(cards).find(c => c.dataset.id === id);
+        if (target) {
+          target.style.background = 'rgba(196,75,60,0.08)';
+          target.scrollIntoView({ behavior:'smooth', block:'center' });
+          setTimeout(()=>{ target.style.background = ''; }, 2000);
+        }
+      }
+
+      function deleteMarker(id) {
+        if (!confirm('删除此便签？')) return;
+        markersData = markersData.filter(m => m.id !== id);
+        saveData(); renderMarkers();
+        closeModal();
+      }
+
+      // 放置模式
+      function enterPlacingMode() {
+        isPlacingMode = true;
+        mapFloatBtn.classList.add('active-mode');
+        mapFloatBtn.textContent = '⊙';
+        mapHint.style.opacity = '1';
+        map.getContainer().style.cursor = 'crosshair';
+      }
+      function exitPlacingMode(removeDraft = true) {
+        isPlacingMode = false;
+        mapFloatBtn.classList.remove('active-mode');
+        mapFloatBtn.textContent = '+';
+        mapHint.style.opacity = '0';
+        map.getContainer().style.cursor = '';
+        if (removeDraft && draftMarker) { map.removeLayer(draftMarker); draftMarker = null; }
+      }
+
+      function handleMapClick(e) {
+        if (!isPlacingMode) return;
+        if (draftMarker) map.removeLayer(draftMarker);
+        const icon = L.divIcon({
+          html: '<div style="width:20px;height:20px;background:rgba(196,75,60,0.8);border:2px solid white;border-radius:50%;"></div>',
+          iconSize: [20,20], iconAnchor: [10,10]
+        });
+        draftMarker = L.marker(e.latlng, { icon, draggable: true }).addTo(map);
+        draftMarker.on('click', () => {
+          if (draftMarker) { pendingLatLng = draftMarker.getLatLng(); openModal(pendingLatLng, null); }
+        });
+        draftMarker.on('dragend', () => { pendingLatLng = draftMarker.getLatLng(); });
+        pendingLatLng = e.latlng;
+        mapHint.textContent = '点击标记点创建便签，可拖动调整位置';
+      }
+
+      mapFloatBtn.addEventListener('click', () => {
+        if (isPlacingMode) exitPlacingMode(true); else enterPlacingMode();
+      });
+
+      // 模态窗口
+      function openModal(latlng, existingData) {
+        pendingLatLng = latlng;
+        editingId = existingData?.id || null;
+        modalTitle.textContent = existingData ? '编辑记忆便签' : '新建记忆便签';
+        noteTitle.value = existingData?.name || '';
+        noteTags.value = existingData?.tags?.join(',') || '';
+        noteDesc.value = existingData?.desc || '';
+        noteType.value = existingData?.type || 'personal';
+        currentImages = existingData?.images ? [...existingData.images] : [];
+        renderImageList();
+        coordDisplay.textContent = `坐标：${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+        modalOverlay.classList.remove('hidden');
+        noteTitle.focus();
+      }
+
+      function closeModal() {
+        modalOverlay.classList.add('hidden');
+        editingId = null; currentImages = []; renderImageList();
+        if (draftMarker) exitPlacingMode(true);
+      }
+
+      function renderImageList() {
+        imgListDiv.innerHTML = '';
+        currentImages.forEach((img, idx) => {
+          const item = document.createElement('div');
+          item.className = 'img-item';
+          item.innerHTML = `<img src="${img}" alt="pic"><button class="remove-img">×</button>`;
+          item.querySelector('.remove-img').addEventListener('click', (e) => {
+            e.stopPropagation(); currentImages.splice(idx,1); renderImageList();
+          });
+          imgListDiv.appendChild(item);
+        });
+      }
+
+      function compressImage(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let { width, height } = img;
+              if (width > IMAGE_MAX_WIDTH) { height *= IMAGE_MAX_WIDTH/width; width = IMAGE_MAX_WIDTH; }
+              canvas.width = width; canvas.height = height;
+              canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', 0.8));
+            };
+            img.onerror = reject; img.src = ev.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function handleFiles(files) {
+        if (currentImages.length + files.length > MAX_IMAGES) { alert('最多5张'); return; }
+        for (const file of files) {
+          try { const compressed = await compressImage(file); currentImages.push(compressed); } catch(e){}
+        }
+        renderImageList();
+      }
+
+      uploadTrigger.addEventListener('click', () => imageUpload.click());
+      imageUpload.addEventListener('change', (e) => {
+        if (e.target.files.length) { handleFiles(e.target.files); e.target.value = ''; }
+      });
+      btnCancel.addEventListener('click', closeModal);
+      modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+
+      btnSave.addEventListener('click', () => {
+        const title = noteTitle.value.trim();
+        if (!title) { alert('请输入标题'); return; }
+        if (!pendingLatLng) { alert('坐标丢失'); return; }
+        const noteData = {
+          id: editingId || 'note-'+Date.now()+'-'+Math.random().toString(36).substr(2,4),
+          name: title,
+          tags: noteTags.value.trim().split(',').map(t=>t.trim()).filter(t=>t),
+          desc: noteDesc.value.trim(),
+          type: noteType.value,
+          lat: pendingLatLng.lat, lng: pendingLatLng.lng,
+          images: currentImages.slice(),
+          createdAt: editingId ? (markersData.find(m=>m.id===editingId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
+        };
+        if (editingId) {
+          const idx = markersData.findIndex(m => m.id === editingId);
+          if (idx >= 0) markersData[idx] = noteData;
+        } else { markersData.push(noteData); }
+        saveData(); renderMarkers(); closeModal();
+        if (!editingId) setTimeout(() => flyToMarker(noteData), 300);
+      });
+
+      map?.on('contextmenu', (e) => {
+        markerLayerGroup.eachLayer(layer => {
+          if (layer.getLatLng && layer._memoryData) {
+            if (layer.getLatLng().distanceTo(e.latlng) < 25) {
+              pendingLatLng = layer.getLatLng();
+              openModal(pendingLatLng, layer._memoryData);
+            }
+          }
+        });
+      });
+
+      function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      // 启动
+      function init() {
+        loadRegionName();
+        loadData();
+        initMap();
+        renderMarkers();
+        if (markersData.length && map) {
+          const bounds = markersData.map(m=>[m.lat,m.lng]);
+          map.fitBounds(L.latLngBounds(bounds).pad(0.2), { maxZoom: 14 });
+        }
+        // 再次确保地图尺寸
+        setTimeout(() => { if (map) map.invalidateSize(); }, 400);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    });
+  })();
+</script>
+</body>
+</html>
